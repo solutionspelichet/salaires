@@ -10,10 +10,13 @@ import {
   Loader2,
   Database,
   Link as LinkIcon,
-  Beaker
+  Beaker,
+  ShieldCheck,
+  ChevronRight,
+  Info
 } from 'lucide-react';
 
-// URL de déploiement Google Apps Script fournie par l'utilisateur
+// URL de votre déploiement Google Apps Script
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbywtqzu7BsxLjsgHQHJcSTKvdbknj-5ltvhf8fgSKCrW7Kq94Zq4sHJrVJHoTBsUmqb/exec"; 
 
 const App = () => {
@@ -21,7 +24,6 @@ const App = () => {
   const [fileBase64, setFileBase64] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [extractionResult, setExtractionResult] = useState([]);
-  const [status, setStatus] = useState('idle'); 
   const [currentStep, setCurrentStep] = useState(1);
   const [logs, setLogs] = useState([]);
   const [apiUrl, setApiUrl] = useState(GOOGLE_SCRIPT_URL);
@@ -30,7 +32,7 @@ const App = () => {
     setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
   };
 
-  // Utilitaire pour charger jsPDF dynamiquement pour les tests
+  // Chargeur dynamique pour jsPDF (Tests)
   const loadJsPDF = () => {
     return new Promise((resolve) => {
       if (window.jspdf) return resolve(window.jspdf);
@@ -41,45 +43,36 @@ const App = () => {
     });
   };
 
-  // Générateur de PDF fictif pour le test du pipeline
   const generateTestPDF = async () => {
-    addLog("Génération d'un PDF de test (2 pages)...");
+    addLog("Génération d'un échantillon de test...");
     const { jsPDF } = await loadJsPDF();
     const doc = new jsPDF();
 
-    // Page 1
-    doc.setFontSize(20);
-    doc.text("SOCIÉTÉ FICTIVE SAS", 20, 20);
-    doc.setFontSize(12);
-    doc.text("Bulletin de salaire - Février 2026", 20, 30);
-    doc.setFont("helvetica", "bold");
-    doc.text("Nom Prénom : DUPONT JEAN", 20, 50);
-    doc.setFont("helvetica", "normal");
-    doc.text("Matricule : ID001", 20, 60);
-    doc.text("Salaire de base : 3500.00 EUR", 20, 80);
-    doc.text("Net à payer : 2750.40 EUR", 20, 90);
+    // Simulation de fiches
+    const samples = [
+      { name: "DUPONT JEAN", id: "ID001" },
+      { name: "MARTIN SOPHIE", id: "ID002" }
+    ];
 
-    // Page 2
-    doc.addPage();
-    doc.setFontSize(20);
-    doc.text("SOCIÉTÉ FICTIVE SAS", 20, 20);
-    doc.setFontSize(12);
-    doc.text("Bulletin de salaire - Février 2026", 20, 30);
-    doc.setFont("helvetica", "bold");
-    doc.text("Nom Prénom : MARTIN SOPHIE", 20, 50);
-    doc.setFont("helvetica", "normal");
-    doc.text("Matricule : ID002", 20, 60);
-    doc.text("Salaire de base : 3800.00 EUR", 20, 80);
-    doc.text("Net à payer : 2980.15 EUR", 20, 90);
+    samples.forEach((s, i) => {
+      if (i > 0) doc.addPage();
+      doc.setFontSize(18);
+      doc.text("BULLETIN DE PAIE - FÉVRIER 2026", 20, 30);
+      doc.setFontSize(12);
+      doc.text("Société de Test SAS", 20, 40);
+      doc.setFont("helvetica", "bold");
+      doc.text(`Nom Prénom : ${s.name}`, 20, 60);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Matricule : ${s.id}`, 20, 70);
+      doc.text("Net à payer : 2500,00 €", 20, 90);
+    });
 
     const pdfBlob = doc.output('blob');
-    const testFile = new File([pdfBlob], "Test_Paie_Fevrier_2026.pdf", { type: "application/pdf" });
-    
+    const testFile = new File([pdfBlob], "Paie_Test.pdf", { type: "application/pdf" });
     setFile(testFile);
     processPDF(testFile);
   };
 
-  // Utilitaire pour convertir un fichier en Base64 pour le transport vers GAS
   const fileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -89,61 +82,37 @@ const App = () => {
     });
   };
 
-  // Phase 1 : Extraction du contenu du PDF via le backend
   const processPDF = async (uploadedFile) => {
-    if (!apiUrl) {
-      addLog("Erreur : Veuillez renseigner l'URL de l'API Google.");
-      return;
-    }
-
+    if (!apiUrl) return addLog("Erreur : URL API manquante.");
     setIsProcessing(true);
-    setStatus('extracting');
-    addLog(`Lecture du fichier : ${uploadedFile.name}`);
+    addLog(`Fichier chargé : ${uploadedFile.name}`);
 
     try {
       const base64 = await fileToBase64(uploadedFile);
       setFileBase64(base64);
 
-      addLog("Envoi au moteur d'extraction Google (OCR & Parsing)...");
-      
+      addLog("Analyse OCR en cours sur Google Cloud...");
       const response = await fetch(apiUrl, {
         method: 'POST',
-        body: JSON.stringify({
-          action: 'EXTRACT',
-          fileBase64: base64,
-          fileName: uploadedFile.name
-        })
+        body: JSON.stringify({ action: 'EXTRACT', fileBase64: base64, fileName: uploadedFile.name })
       });
 
       const data = await response.json();
-
       if (data.error) throw new Error(data.error);
 
       setExtractionResult(data.records || []);
-      setStatus('validating');
       setCurrentStep(2);
-      addLog(`${data.records?.length || 0} fiches détectées et mappées.`);
+      addLog(`${data.records?.length || 0} fiches identifiées.`);
     } catch (error) {
-      addLog(`Erreur d'extraction : ${error.message}`);
-      setStatus('idle');
+      addLog(`Échec : ${error.message}`);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleFileUpload = (e) => {
-    const uploadedFile = e.target.files[0];
-    if (uploadedFile) {
-      setFile(uploadedFile);
-      processPDF(uploadedFile);
-    }
-  };
-
-  // Phase 2 : Distribution finale (Drive, Gmail et Sheets)
   const confirmAndSend = async () => {
     setIsProcessing(true);
-    setStatus('sending');
-    addLog("Lancement de la distribution sécurisée (Drive + Gmail)...");
+    addLog("Déclenchement du pipeline de distribution...");
 
     try {
       const response = await fetch(apiUrl, {
@@ -156,160 +125,150 @@ const App = () => {
       });
 
       const data = await response.json();
-
       if (data.status === 'COMPLETED' || data.action === 'FINALIZE_COMPLETE') {
-        const count = data.processedCount || (data.resultat ? data.resultat.succes : 0);
-        addLog(`Succès : ${count} fiches traitées.`);
+        addLog("Succès : Fiches envoyées et archivées.");
         setExtractionResult(prev => prev.map(r => ({ ...r, status: 'sent' })));
-        setStatus('completed');
         setCurrentStep(3);
       } else {
-        throw new Error(data.error || "Échec partiel ou erreur inconnue lors de l'envoi.");
+        throw new Error(data.error || "Erreur lors du traitement final.");
       }
     } catch (error) {
-      addLog(`Erreur lors de la distribution : ${error.message}`);
+      addLog(`Erreur : ${error.message}`);
     } finally {
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-      {/* Header avec indicateur de connexion API */}
-      <header className="bg-white border-b border-slate-200 px-8 py-4 sticky top-0 z-10 shadow-sm">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-12">
+      {/* Header */}
+      <nav className="bg-white border-b border-slate-200 px-8 py-4 sticky top-0 z-20 shadow-sm">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg text-white">
-              <FileText size={24} />
+            <div className="bg-blue-600 p-2.5 rounded-xl text-white shadow-lg shadow-blue-100">
+              <ShieldCheck size={24} />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight">PayDrive Automator</h1>
-              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Interface de distribution RH</p>
+              <h1 className="text-xl font-bold tracking-tight text-slate-800">PayDrive Automator</h1>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">RH Secure Pipeline</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 group transition-all focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+          <div className="hidden md:flex items-center gap-4">
+            <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-xl border border-slate-200 focus-within:border-blue-400 transition-all">
               <LinkIcon size={14} className="text-slate-400" />
               <input 
                 type="text" 
-                placeholder="URL de l'API Google Apps Script"
-                className="bg-transparent text-xs outline-none w-72 font-mono text-slate-600"
+                className="bg-transparent text-xs outline-none w-64 font-mono"
                 value={apiUrl}
                 onChange={(e) => setApiUrl(e.target.value)}
+                placeholder="Endpoint .google.com/exec"
               />
             </div>
             <div className="h-4 w-px bg-slate-200"></div>
-            <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 border border-green-200">
-              <Database size={12}/> GOOGLE CLOUD READY
-            </span>
+            <div className="flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1.5 rounded-lg border border-green-100 text-[10px] font-black uppercase">
+              <Database size={12}/> Cloud Active
+            </div>
           </div>
         </div>
-      </header>
+      </nav>
 
       <main className="max-w-6xl mx-auto p-8">
-        {/* Barre de progression */}
-        <div className="flex justify-between mb-12 relative max-w-4xl mx-auto">
+        {/* Progress Stepper */}
+        <div className="flex justify-between items-center mb-12 max-w-3xl mx-auto relative">
           <div className="absolute top-1/2 left-0 w-full h-0.5 bg-slate-200 -z-10 -translate-y-1/2"></div>
           {[
-            { n: 1, l: 'Dépôt du PDF' },
-            { n: 2, l: 'Validation & Mapping' },
-            { n: 3, l: 'Distribution terminée' }
+            { n: 1, l: 'Dépôt PDF' },
+            { n: 2, l: 'Validation' },
+            { n: 3, l: 'Distribution' }
           ].map((s) => (
-            <div key={s.n} className="flex flex-col items-center gap-2">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold border-2 transition-all duration-300 ${currentStep >= s.n ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-200 scale-110' : 'bg-white border-slate-300 text-slate-400'}`}>
-                {currentStep > s.n ? <CheckCircle size={20}/> : s.n}
+            <div key={s.n} className="flex flex-col items-center gap-3 bg-slate-50 px-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold border-4 transition-all duration-300 ${currentStep >= s.n ? 'bg-blue-600 border-blue-100 text-white shadow-xl scale-110' : 'bg-white border-slate-200 text-slate-400'}`}>
+                {currentStep > s.n ? <CheckCircle size={24}/> : s.n}
               </div>
-              <span className={`text-[11px] font-bold uppercase tracking-tight ${currentStep >= s.n ? 'text-blue-600' : 'text-slate-400'}`}>{s.l}</span>
+              <span className={`text-[11px] font-black uppercase tracking-wider ${currentStep >= s.n ? 'text-blue-600' : 'text-slate-400'}`}>{s.l}</span>
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Main Workspace */}
+          <div className="lg:col-span-8 space-y-6">
             
-            {/* Étape 1 : Upload */}
             {currentStep === 1 && (
-              <div className="space-y-6">
-                <div className="bg-white rounded-3xl border-2 border-dashed border-slate-300 p-16 flex flex-col items-center justify-center text-center transition-all hover:border-blue-400 hover:bg-blue-50/20 group">
-                  <div className="bg-blue-50 p-6 rounded-full mb-6 group-hover:scale-110 transition-transform">
-                    <Upload className="text-blue-600" size={48} />
-                  </div>
-                  <h2 className="text-2xl font-bold text-slate-800 mb-2">Importer le fichier de paie</h2>
-                  <p className="text-slate-500 mb-8 max-w-sm text-sm">Téléversez le PDF consolidé. Le système identifiera automatiquement les fiches individuelles.</p>
-                  
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    <label className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl font-bold cursor-pointer transition-all shadow-xl shadow-blue-200 inline-flex items-center gap-3 active:scale-95">
-                      <FileText size={20}/> Choisir le fichier PDF
-                      <input type="file" className="hidden" accept=".pdf" onChange={handleFileUpload} />
-                    </label>
-                    
-                    <button 
-                      onClick={generateTestPDF}
-                      className="bg-white border border-slate-200 text-slate-600 px-8 py-4 rounded-xl font-bold hover:bg-slate-50 transition-all inline-flex items-center gap-3 active:scale-95"
-                    >
-                      <Beaker size={20} className="text-indigo-500"/> Générer PDF de test
-                    </button>
-                  </div>
+              <div className="bg-white rounded-[2rem] border-2 border-dashed border-slate-200 p-16 text-center transition-all hover:border-blue-400 hover:bg-blue-50/20 group relative overflow-hidden shadow-sm">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 to-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                <div className="bg-blue-50 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform shadow-inner">
+                  <Upload className="text-blue-600" size={32} />
                 </div>
+                <h2 className="text-2xl font-black text-slate-800 mb-2 tracking-tight">Traitement Mensuel</h2>
+                <p className="text-slate-500 mb-10 max-w-sm mx-auto text-sm leading-relaxed">Déposez votre PDF consolidé pour lancer l'analyse automatique des fiches.</p>
                 
-                <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex gap-3">
-                  <AlertCircle className="text-blue-500 shrink-0" size={20} />
-                  <p className="text-xs text-blue-700 leading-relaxed">
-                    <b>Note de test :</b> Le générateur crée un PDF contenant "DUPONT JEAN" et "MARTIN SOPHIE". 
-                    Assurez-vous que ces noms sont présents dans votre onglet <i>Referentiel</i> pour que le mapping fonctionne.
-                  </p>
+                <div className="flex flex-col sm:flex-row justify-center gap-4">
+                  <label className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-2xl font-bold cursor-pointer transition-all shadow-xl shadow-blue-200 flex items-center justify-center gap-3 active:scale-95">
+                    <FileText size={20}/> Parcourir
+                    <input type="file" className="hidden" accept=".pdf" onChange={(e) => e.target.files[0] && processPDF(e.target.files[0])} />
+                  </label>
+                  
+                  <button onClick={generateTestPDF} className="bg-white border border-slate-200 text-slate-600 px-10 py-4 rounded-2xl font-bold hover:bg-slate-50 transition-all flex items-center justify-center gap-3 active:scale-95 shadow-sm">
+                    <Beaker size={20} className="text-indigo-500"/> Mode Test
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* Étape 2 : Tableau de validation */}
             {currentStep >= 2 && (
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="px-6 py-5 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
+              <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-200 overflow-hidden">
+                <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
                   <div>
-                    <h3 className="font-bold text-slate-800">Résultats de l'analyse OCR</h3>
-                    <p className="text-[10px] text-slate-400 font-medium">Vérifiez les correspondances avant l'envoi groupé</p>
+                    <h3 className="font-black text-slate-800 tracking-tight">Mapping Collaborateurs</h3>
+                    <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Vérification des correspondances OCR</p>
                   </div>
                   {currentStep === 2 && (
                     <button 
                       onClick={confirmAndSend}
-                      disabled={isProcessing || extractionResult.length === 0}
-                      className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-green-100 active:scale-95"
+                      disabled={isProcessing}
+                      className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-3 shadow-lg shadow-green-100 transition-all active:scale-95"
                     >
-                      {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                      Valider et Envoyer
+                      {isProcessing ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
+                      Déclencher l'envoi
                     </button>
                   )}
                 </div>
-                <div className="overflow-x-auto max-h-[550px] scrollbar-thin scrollbar-thumb-slate-200">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="sticky top-0 bg-slate-50 z-10 border-b border-slate-200">
-                      <tr className="text-[10px] uppercase text-slate-400 font-black tracking-widest">
-                        <th className="px-6 py-4">Page</th>
-                        <th className="px-6 py-4">Identité détectée</th>
-                        <th className="px-6 py-4">Email de destination</th>
-                        <th className="px-6 py-4">Statut</th>
+                <div className="overflow-x-auto max-h-[500px]">
+                  <table className="w-full text-left">
+                    <thead className="sticky top-0 bg-slate-50/90 backdrop-blur-sm z-10">
+                      <tr className="text-[10px] uppercase text-slate-400 font-black tracking-[0.15em] border-b border-slate-100">
+                        <th className="px-8 py-5">Source Page</th>
+                        <th className="px-8 py-5">Identité détectée</th>
+                        <th className="px-8 py-5">Destination</th>
+                        <th className="px-8 py-5">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-slate-50">
                       {extractionResult.map((row, idx) => (
-                        <tr key={idx} className={`hover:bg-blue-50/40 transition-colors ${row.status === 'ERROR' ? 'bg-red-50/30' : ''}`}>
-                          <td className="px-6 py-4 text-xs font-mono text-slate-400">P.{row.page}</td>
-                          <td className="px-6 py-4 font-bold text-slate-700 text-sm uppercase">{row.detectedName}</td>
-                          <td className="px-6 py-4">
+                        <tr key={idx} className={`group hover:bg-blue-50/30 transition-colors ${row.status === 'ERROR' ? 'bg-red-50/20' : ''}`}>
+                          <td className="px-8 py-5 text-xs font-mono text-slate-400"># {row.page}</td>
+                          <td className="px-8 py-5 font-bold text-slate-700 text-sm uppercase">{row.detectedName}</td>
+                          <td className="px-8 py-5">
                             {row.email ? (
-                              <span className="text-sm text-blue-600 font-semibold">{row.email}</span>
+                              <div className="flex flex-col">
+                                <span className="text-sm text-blue-600 font-bold tracking-tight">{row.email}</span>
+                                <span className="text-[10px] text-slate-400 font-bold uppercase">Match Automatique</span>
+                              </div>
                             ) : (
-                              <span className="text-red-500 text-[10px] flex items-center gap-1 font-bold">
-                                <AlertCircle size={14}/> AUCUNE CORRESPONDANCE
+                              <span className="text-red-500 text-[10px] flex items-center gap-1 font-black uppercase">
+                                <AlertCircle size={14}/> Non référencé
                               </span>
                             )}
                           </td>
-                          <td className="px-6 py-4">
-                            {row.status === 'READY' && <span className="bg-blue-100 text-blue-700 text-[9px] px-2 py-1 rounded-md font-black tracking-tighter">PRÊT</span>}
-                            {row.status === 'ERROR' && <span className="bg-red-100 text-red-700 text-[9px] px-2 py-1 rounded-md font-black tracking-tighter">ÉCHEC OCR</span>}
-                            {row.status === 'sent' && <span className="bg-green-100 text-green-700 text-[9px] px-2 py-1 rounded-md font-black tracking-tighter">TRANSMIS</span>}
+                          <td className="px-8 py-5">
+                            <div className="flex items-center gap-2">
+                              {row.status === 'READY' && <span className="bg-blue-100 text-blue-700 text-[9px] px-2.5 py-1 rounded-full font-black">READY</span>}
+                              {row.status === 'ERROR' && <span className="bg-red-100 text-red-700 text-[9px] px-2.5 py-1 rounded-full font-black">FAIL</span>}
+                              {row.status === 'sent' && <span className="bg-green-100 text-green-700 text-[9px] px-2.5 py-1 rounded-full font-black">SENT</span>}
+                              <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-300 hover:text-blue-600"><Eye size={16}/></button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -320,65 +279,54 @@ const App = () => {
             )}
           </div>
 
-          {/* Sidebar de Monitoring */}
-          <div className="space-y-6">
-            <div className="bg-slate-900 rounded-3xl shadow-2xl p-6 text-white overflow-hidden relative border border-slate-800">
-              <div className="absolute -top-10 -right-10 p-4 opacity-5 pointer-events-none">
-                <History size={160} />
-              </div>
-              <h3 className="font-black mb-6 flex items-center gap-2 text-slate-500 text-[10px] uppercase tracking-[0.2em]">
-                Live Analytics & Logs
+          {/* Monitoring Sidebar */}
+          <div className="lg:col-span-4 space-y-6">
+            <div className="bg-slate-900 rounded-[2rem] shadow-2xl p-8 text-white relative overflow-hidden border border-slate-800">
+              <div className="absolute top-0 right-0 p-4 opacity-10"><History size={80} /></div>
+              <h3 className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-6 flex items-center gap-2">
+                <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
+                Audit Trail & Engine Logs
               </h3>
-              <div className="space-y-3 h-[400px] overflow-y-auto pr-2 scrollbar-hide text-xs">
-                {logs.length === 0 && <p className="text-slate-600 italic">Système en attente d'instruction...</p>}
+              <div className="space-y-4 h-[350px] overflow-y-auto pr-2 scrollbar-hide text-[10px] font-mono leading-relaxed">
+                {logs.length === 0 && <p className="text-slate-600 italic">En attente d'entrée PDF...</p>}
                 {logs.map((log, i) => (
-                  <div key={i} className="font-mono border-l-2 border-blue-500/30 pl-3 py-2 bg-white/5 rounded-r-lg mb-2">
-                    <span className="text-blue-400 block mb-1 opacity-50">{log.split(']')[0]}]</span>
-                    <span className="opacity-90 leading-relaxed">{log.split(']')[1]}</span>
+                  <div key={i} className="group border-l border-slate-700 pl-4 py-1 hover:border-blue-500 transition-colors">
+                    <span className="text-blue-500 font-bold opacity-60">{log.split(']')[0]}]</span>
+                    <span className="text-slate-300 ml-2">{log.split(']')[1]}</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
-              <h3 className="font-black mb-6 text-slate-800 text-[11px] uppercase tracking-widest border-b border-slate-100 pb-4">Résumé du Traitement</h3>
+            <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
+              <h3 className="font-black text-slate-800 text-[11px] uppercase tracking-widest mb-6 pb-4 border-b border-slate-100">Analytics du Lot</h3>
               <div className="space-y-6">
                 <div className="flex justify-between items-end">
-                  <span className="text-[10px] text-slate-400 uppercase font-black tracking-tighter">Total Documents</span>
-                  <span className="text-3xl font-black text-slate-800 leading-none">{extractionResult.length}</span>
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Documents Total</span>
+                  <span className="text-3xl font-black text-slate-800">{extractionResult.length}</span>
                 </div>
                 <div className="flex justify-between items-end">
-                  <span className="text-[10px] text-slate-400 uppercase font-black tracking-tighter">Mappés avec succès</span>
-                  <span className="text-3xl font-black text-blue-600 leading-none">
-                    {extractionResult.filter(r => r.email).length}
-                  </span>
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Mappés</span>
+                  <span className="text-3xl font-black text-blue-600">{extractionResult.filter(r => r.email).length}</span>
                 </div>
                 <div className="pt-4 border-t border-slate-100">
                   <div className="flex justify-between items-end">
-                    <span className="text-[10px] text-slate-400 uppercase font-black tracking-tighter">Envois validés</span>
-                    <span className="text-3xl font-black text-green-500 leading-none">
-                      {extractionResult.filter(r => r.status === 'sent').length}
-                    </span>
+                    <span className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Transmis</span>
+                    <span className="text-3xl font-black text-green-500">{extractionResult.filter(r => r.status === 'sent').length}</span>
                   </div>
                 </div>
               </div>
             </div>
+
+            <div className="bg-blue-50 rounded-2xl p-5 border border-blue-100 flex gap-4">
+              <Info className="text-blue-500 shrink-0" size={20} />
+              <p className="text-[10px] text-blue-700 font-medium leading-relaxed">
+                <b>Sécurité :</b> Les fiches sont archivées dans Drive selon la structure <i>/Année/Mois/Nom</i> avec un hash unique pour l'idempotence.
+              </p>
+            </div>
           </div>
         </div>
       </main>
-
-      <footer className="max-w-6xl mx-auto px-8 py-10 text-center border-t border-slate-200 mt-12">
-        <div className="flex justify-center gap-6 mb-4 opacity-30 grayscale">
-          <Database size={20} />
-          <CheckCircle size={20} />
-          <div className="bg-slate-400 rounded-full w-5 h-5 flex items-center justify-center">
-              <CheckCircle size={14} className="text-white" />
-          </div>
-        </div>
-        <p className="text-slate-400 text-[10px] font-medium uppercase tracking-[0.1em]">
-          Automated Payroll Delivery System • TLS 1.3 Encryption • Google API Integration
-        </p>
-      </footer>
     </div>
   );
 };
