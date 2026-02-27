@@ -1,334 +1,348 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  FileText, 
-  Upload, 
-  CheckCircle, 
-  AlertCircle, 
-  Send, 
-  History,
-  Eye,
-  Loader2,
-  Database,
-  Link as LinkIcon,
-  Beaker,
-  ShieldCheck,
-  ChevronRight,
-  Info
-} from 'lucide-react';
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PayDrive Automator - RH</title>
+    <!-- Tailwind CSS pour le style -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons pour les icônes -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- jsPDF pour les tests -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased min-h-screen">
 
-// URL de votre déploiement Google Apps Script
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbywtqzu7BsxLjsgHQHJcSTKvdbknj-5ltvhf8fgSKCrW7Kq94Zq4sHJrVJHoTBsUmqb/exec"; 
-
-const App = () => {
-  const [file, setFile] = useState(null);
-  const [fileBase64, setFileBase64] = useState(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [extractionResult, setExtractionResult] = useState([]);
-  const [currentStep, setCurrentStep] = useState(1);
-  const [logs, setLogs] = useState([]);
-  const [apiUrl, setApiUrl] = useState(GOOGLE_SCRIPT_URL);
-
-  const addLog = (msg) => {
-    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
-  };
-
-  // Chargeur dynamique pour jsPDF (Tests)
-  const loadJsPDF = () => {
-    return new Promise((resolve) => {
-      if (window.jspdf) return resolve(window.jspdf);
-      const script = document.createElement('script');
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
-      script.onload = () => resolve(window.jspdf);
-      document.head.appendChild(script);
-    });
-  };
-
-  const generateTestPDF = async () => {
-    addLog("Génération d'un échantillon de test...");
-    const { jsPDF } = await loadJsPDF();
-    const doc = new jsPDF();
-
-    // Simulation de fiches
-    const samples = [
-      { name: "DUPONT JEAN", id: "ID001" },
-      { name: "MARTIN SOPHIE", id: "ID002" }
-    ];
-
-    samples.forEach((s, i) => {
-      if (i > 0) doc.addPage();
-      doc.setFontSize(18);
-      doc.text("BULLETIN DE PAIE - FÉVRIER 2026", 20, 30);
-      doc.setFontSize(12);
-      doc.text("Société de Test SAS", 20, 40);
-      doc.setFont("helvetica", "bold");
-      doc.text(`Nom Prénom : ${s.name}`, 20, 60);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Matricule : ${s.id}`, 20, 70);
-      doc.text("Net à payer : 2500,00 €", 20, 90);
-    });
-
-    const pdfBlob = doc.output('blob');
-    const testFile = new File([pdfBlob], "Paie_Test.pdf", { type: "application/pdf" });
-    setFile(testFile);
-    processPDF(testFile);
-  };
-
-  const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = (error) => reject(error);
-    });
-  };
-
-  const processPDF = async (uploadedFile) => {
-    if (!apiUrl) return addLog("Erreur : URL API manquante.");
-    setIsProcessing(true);
-    addLog(`Fichier chargé : ${uploadedFile.name}`);
-
-    try {
-      const base64 = await fileToBase64(uploadedFile);
-      setFileBase64(base64);
-
-      addLog("Analyse OCR en cours sur Google Cloud...");
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'EXTRACT', fileBase64: base64, fileName: uploadedFile.name })
-      });
-
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
-
-      setExtractionResult(data.records || []);
-      setCurrentStep(2);
-      addLog(`${data.records?.length || 0} fiches identifiées.`);
-    } catch (error) {
-      addLog(`Échec : ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const confirmAndSend = async () => {
-    setIsProcessing(true);
-    addLog("Déclenchement du pipeline de distribution...");
-
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-          action: 'SEND_AND_SAVE',
-          validatedRecords: extractionResult,
-          fileBase64: fileBase64
-        })
-      });
-
-      const data = await response.json();
-      if (data.status === 'COMPLETED' || data.action === 'FINALIZE_COMPLETE') {
-        addLog("Succès : Fiches envoyées et archivées.");
-        setExtractionResult(prev => prev.map(r => ({ ...r, status: 'sent' })));
-        setCurrentStep(3);
-      } else {
-        throw new Error(data.error || "Erreur lors du traitement final.");
-      }
-    } catch (error) {
-      addLog(`Erreur : ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-12">
-      {/* Header */}
-      <nav className="bg-white border-b border-slate-200 px-8 py-4 sticky top-0 z-20 shadow-sm">
-        <div className="max-w-6xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2.5 rounded-xl text-white shadow-lg shadow-blue-100">
-              <ShieldCheck size={24} />
+    <!-- NAVIGATION -->
+    <nav class="bg-white border-b border-slate-200 px-8 py-4 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 p-2.5 rounded-xl text-white shadow-lg shadow-blue-200">
+                    <i data-lucide="shield-check"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-extrabold tracking-tight text-slate-800 leading-none">PayDrive Automator</h1>
+                    <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Pipeline RH Sécurisé</span>
+                </div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-800">PayDrive Automator</h1>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">RH Secure Pipeline</p>
-            </div>
-          </div>
-          
-          <div className="hidden md:flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-xl border border-slate-200 focus-within:border-blue-400 transition-all">
-              <LinkIcon size={14} className="text-slate-400" />
-              <input 
-                type="text" 
-                className="bg-transparent text-xs outline-none w-64 font-mono"
-                value={apiUrl}
-                onChange={(e) => setApiUrl(e.target.value)}
-                placeholder="Endpoint .google.com/exec"
-              />
-            </div>
-            <div className="h-4 w-px bg-slate-200"></div>
-            <div className="flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1.5 rounded-lg border border-green-100 text-[10px] font-black uppercase">
-              <Database size={12}/> Cloud Active
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      <main className="max-w-6xl mx-auto p-8">
-        {/* Progress Stepper */}
-        <div className="flex justify-between items-center mb-12 max-w-3xl mx-auto relative">
-          <div className="absolute top-1/2 left-0 w-full h-0.5 bg-slate-200 -z-10 -translate-y-1/2"></div>
-          {[
-            { n: 1, l: 'Dépôt PDF' },
-            { n: 2, l: 'Validation' },
-            { n: 3, l: 'Distribution' }
-          ].map((s) => (
-            <div key={s.n} className="flex flex-col items-center gap-3 bg-slate-50 px-4">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold border-4 transition-all duration-300 ${currentStep >= s.n ? 'bg-blue-600 border-blue-100 text-white shadow-xl scale-110' : 'bg-white border-slate-200 text-slate-400'}`}>
-                {currentStep > s.n ? <CheckCircle size={24}/> : s.n}
-              </div>
-              <span className={`text-[11px] font-black uppercase tracking-wider ${currentStep >= s.n ? 'text-blue-600' : 'text-slate-400'}`}>{s.l}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Main Workspace */}
-          <div className="lg:col-span-8 space-y-6">
             
-            {currentStep === 1 && (
-              <div className="bg-white rounded-[2rem] border-2 border-dashed border-slate-200 p-16 text-center transition-all hover:border-blue-400 hover:bg-blue-50/20 group relative overflow-hidden shadow-sm">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 to-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                <div className="bg-blue-50 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform shadow-inner">
-                  <Upload className="text-blue-600" size={32} />
+            <div class="flex items-center gap-4">
+                <div class="hidden md:flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-xl border border-slate-200">
+                    <i data-lucide="link" class="w-4 h-4 text-slate-400"></i>
+                    <input type="text" id="apiUrl" class="bg-transparent text-xs outline-none w-64 font-mono text-slate-600" 
+                           value="https://script.google.com/macros/s/AKfycbywtqzu7BsxLjsgHQHJcSTKvdbknj-5ltvhf8fgSKCrW7Kq94Zq4sHJrVJHoTBsUmqb/exec" 
+                           placeholder="URL .google.com/exec">
                 </div>
-                <h2 className="text-2xl font-black text-slate-800 mb-2 tracking-tight">Traitement Mensuel</h2>
-                <p className="text-slate-500 mb-10 max-w-sm mx-auto text-sm leading-relaxed">Déposez votre PDF consolidé pour lancer l'analyse automatique des fiches.</p>
-                
-                <div className="flex flex-col sm:flex-row justify-center gap-4">
-                  <label className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-2xl font-bold cursor-pointer transition-all shadow-xl shadow-blue-200 flex items-center justify-center gap-3 active:scale-95">
-                    <FileText size={20}/> Parcourir
-                    <input type="file" className="hidden" accept=".pdf" onChange={(e) => e.target.files[0] && processPDF(e.target.files[0])} />
-                  </label>
-                  
-                  <button onClick={generateTestPDF} className="bg-white border border-slate-200 text-slate-600 px-10 py-4 rounded-2xl font-bold hover:bg-slate-50 transition-all flex items-center justify-center gap-3 active:scale-95 shadow-sm">
-                    <Beaker size={20} className="text-indigo-500"/> Mode Test
-                  </button>
+                <div class="bg-green-50 text-green-700 px-3 py-1.5 rounded-lg border border-green-100 text-[10px] font-black uppercase flex items-center gap-1.5">
+                    <i data-lucide="database" class="w-3 h-3"></i> Cloud Connecté
                 </div>
-              </div>
-            )}
-
-            {currentStep >= 2 && (
-              <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-200 overflow-hidden">
-                <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
-                  <div>
-                    <h3 className="font-black text-slate-800 tracking-tight">Mapping Collaborateurs</h3>
-                    <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Vérification des correspondances OCR</p>
-                  </div>
-                  {currentStep === 2 && (
-                    <button 
-                      onClick={confirmAndSend}
-                      disabled={isProcessing}
-                      className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-3 shadow-lg shadow-green-100 transition-all active:scale-95"
-                    >
-                      {isProcessing ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
-                      Déclencher l'envoi
-                    </button>
-                  )}
-                </div>
-                <div className="overflow-x-auto max-h-[500px]">
-                  <table className="w-full text-left">
-                    <thead className="sticky top-0 bg-slate-50/90 backdrop-blur-sm z-10">
-                      <tr className="text-[10px] uppercase text-slate-400 font-black tracking-[0.15em] border-b border-slate-100">
-                        <th className="px-8 py-5">Source Page</th>
-                        <th className="px-8 py-5">Identité détectée</th>
-                        <th className="px-8 py-5">Destination</th>
-                        <th className="px-8 py-5">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {extractionResult.map((row, idx) => (
-                        <tr key={idx} className={`group hover:bg-blue-50/30 transition-colors ${row.status === 'ERROR' ? 'bg-red-50/20' : ''}`}>
-                          <td className="px-8 py-5 text-xs font-mono text-slate-400"># {row.page}</td>
-                          <td className="px-8 py-5 font-bold text-slate-700 text-sm uppercase">{row.detectedName}</td>
-                          <td className="px-8 py-5">
-                            {row.email ? (
-                              <div className="flex flex-col">
-                                <span className="text-sm text-blue-600 font-bold tracking-tight">{row.email}</span>
-                                <span className="text-[10px] text-slate-400 font-bold uppercase">Match Automatique</span>
-                              </div>
-                            ) : (
-                              <span className="text-red-500 text-[10px] flex items-center gap-1 font-black uppercase">
-                                <AlertCircle size={14}/> Non référencé
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-8 py-5">
-                            <div className="flex items-center gap-2">
-                              {row.status === 'READY' && <span className="bg-blue-100 text-blue-700 text-[9px] px-2.5 py-1 rounded-full font-black">READY</span>}
-                              {row.status === 'ERROR' && <span className="bg-red-100 text-red-700 text-[9px] px-2.5 py-1 rounded-full font-black">FAIL</span>}
-                              {row.status === 'sent' && <span className="bg-green-100 text-green-700 text-[9px] px-2.5 py-1 rounded-full font-black">SENT</span>}
-                              <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-300 hover:text-blue-600"><Eye size={16}/></button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Monitoring Sidebar */}
-          <div className="lg:col-span-4 space-y-6">
-            <div className="bg-slate-900 rounded-[2rem] shadow-2xl p-8 text-white relative overflow-hidden border border-slate-800">
-              <div className="absolute top-0 right-0 p-4 opacity-10"><History size={80} /></div>
-              <h3 className="font-black text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-6 flex items-center gap-2">
-                <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
-                Audit Trail & Engine Logs
-              </h3>
-              <div className="space-y-4 h-[350px] overflow-y-auto pr-2 scrollbar-hide text-[10px] font-mono leading-relaxed">
-                {logs.length === 0 && <p className="text-slate-600 italic">En attente d'entrée PDF...</p>}
-                {logs.map((log, i) => (
-                  <div key={i} className="group border-l border-slate-700 pl-4 py-1 hover:border-blue-500 transition-colors">
-                    <span className="text-blue-500 font-bold opacity-60">{log.split(']')[0]}]</span>
-                    <span className="text-slate-300 ml-2">{log.split(']')[1]}</span>
-                  </div>
-                ))}
-              </div>
             </div>
-
-            <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
-              <h3 className="font-black text-slate-800 text-[11px] uppercase tracking-widest mb-6 pb-4 border-b border-slate-100">Analytics du Lot</h3>
-              <div className="space-y-6">
-                <div className="flex justify-between items-end">
-                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Documents Total</span>
-                  <span className="text-3xl font-black text-slate-800">{extractionResult.length}</span>
-                </div>
-                <div className="flex justify-between items-end">
-                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Mappés</span>
-                  <span className="text-3xl font-black text-blue-600">{extractionResult.filter(r => r.email).length}</span>
-                </div>
-                <div className="pt-4 border-t border-slate-100">
-                  <div className="flex justify-between items-end">
-                    <span className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Transmis</span>
-                    <span className="text-3xl font-black text-green-500">{extractionResult.filter(r => r.status === 'sent').length}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-blue-50 rounded-2xl p-5 border border-blue-100 flex gap-4">
-              <Info className="text-blue-500 shrink-0" size={20} />
-              <p className="text-[10px] text-blue-700 font-medium leading-relaxed">
-                <b>Sécurité :</b> Les fiches sont archivées dans Drive selon la structure <i>/Année/Mois/Nom</i> avec un hash unique pour l'idempotence.
-              </p>
-            </div>
-          </div>
         </div>
-      </main>
-    </div>
-  );
-};
+    </nav>
 
-export default App;
+    <main class="max-w-7xl mx-auto p-8">
+        <!-- STEPPER -->
+        <div class="flex justify-between items-center mb-12 max-w-3xl mx-auto relative">
+            <div class="absolute top-1/2 left-0 w-full h-1 bg-slate-200 -z-10 -translate-y-1/2"></div>
+            <div id="step-indicators" class="flex justify-between w-full">
+                <!-- Généré par JS -->
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            
+            <!-- ZONE PRINCIPALE -->
+            <div class="lg:col-span-8 space-y-6">
+                
+                <!-- ÉTAPE 1 : UPLOAD -->
+                <div id="step1" class="block">
+                    <div class="bg-white rounded-[2.5rem] border-2 border-dashed border-slate-200 p-16 text-center transition-all hover:border-blue-400 hover:bg-blue-50/20 group relative overflow-hidden shadow-sm">
+                        <div class="bg-blue-50 w-24 h-24 rounded-3xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform shadow-inner text-blue-600">
+                            <i data-lucide="upload-cloud" class="w-10 h-10"></i>
+                        </div>
+                        <h2 class="text-3xl font-extrabold text-slate-800 mb-2">Dépôt des bulletins</h2>
+                        <p class="text-slate-500 mb-10 max-w-md mx-auto leading-relaxed">Glissez votre PDF consolidé ici ou utilisez les boutons ci-dessous pour lancer l'analyse automatisée.</p>
+                        
+                        <div class="flex flex-col sm:flex-row justify-center gap-4">
+                            <label class="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-2xl font-bold cursor-pointer transition-all shadow-xl shadow-blue-200 flex items-center justify-center gap-3 active:scale-95">
+                                <i data-lucide="file-text"></i> Choisir le PDF
+                                <input type="file" id="fileInput" class="hidden" accept=".pdf">
+                            </label>
+                            <button onclick="generateTestPDF()" class="bg-white border border-slate-200 text-slate-600 px-10 py-4 rounded-2xl font-bold hover:bg-slate-50 transition-all flex items-center justify-center gap-3 shadow-sm active:scale-95">
+                                <i data-lucide="beaker" class="text-indigo-500"></i> Mode Test
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ÉTAPE 2 : TABLEAU -->
+                <div id="step2" class="hidden">
+                    <div class="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-200 overflow-hidden">
+                        <div class="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
+                            <div>
+                                <h3 class="font-extrabold text-slate-800 text-lg">Analyse du lot</h3>
+                                <p id="recordCount" class="text-[10px] text-slate-400 font-black uppercase tracking-widest">0 fiches détectées</p>
+                            </div>
+                            <button onclick="confirmAndSend()" id="sendBtn" class="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-3 shadow-lg shadow-green-100 transition-all active:scale-95">
+                                <i data-lucide="send"></i> Lancer l'envoi
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto max-h-[600px] scrollbar-hide">
+                            <table class="w-full text-left">
+                                <thead class="sticky top-0 bg-slate-50/90 backdrop-blur-md z-10 border-b border-slate-200">
+                                    <tr class="text-[10px] uppercase text-slate-400 font-black tracking-[0.2em]">
+                                        <th class="px-8 py-4">Page</th>
+                                        <th class="px-8 py-4">Collaborateur</th>
+                                        <th class="px-8 py-4">Destination</th>
+                                        <th class="px-8 py-4">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tableBody" class="divide-y divide-slate-100">
+                                    <!-- Lignes générées par JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ÉTAPE 3 : SUCCÈS -->
+                <div id="step3" class="hidden">
+                    <div class="bg-white rounded-[2.5rem] p-20 text-center shadow-xl border border-slate-100 flex flex-col items-center">
+                        <div class="w-24 h-24 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6 animate-bounce">
+                            <i data-lucide="check" class="w-12 h-12"></i>
+                        </div>
+                        <h2 class="text-3xl font-black text-slate-800 mb-2">Mission accomplie</h2>
+                        <p class="text-slate-500 mb-10 max-w-sm">Toutes les fiches ont été déposées sur Drive et envoyées par email aux collaborateurs concernés.</p>
+                        <button onclick="location.reload()" class="text-blue-600 font-black uppercase tracking-widest text-xs hover:underline underline-offset-8">Traiter un nouveau lot</button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- SIDEBAR MONITORING -->
+            <div class="lg:col-span-4 space-y-6">
+                <div class="bg-slate-900 rounded-[2.5rem] shadow-2xl p-8 text-white relative overflow-hidden border border-slate-800 min-h-[500px]">
+                    <h3 class="font-black text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-6 flex items-center gap-2">
+                        <span class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                        Live Audit Trail
+                    </h3>
+                    <div id="logContainer" class="space-y-4 h-[400px] overflow-y-auto pr-2 scrollbar-hide text-[10px] font-mono leading-relaxed">
+                        <div class="text-slate-600 italic">En attente d'activité...</div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm">
+                    <h3 class="font-black text-slate-800 text-[11px] uppercase tracking-widest mb-6 pb-4 border-b border-slate-100">Résumé Analytics</h3>
+                    <div class="space-y-6">
+                        <div class="flex justify-between items-end">
+                            <span class="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Pages Totales</span>
+                            <span id="statTotal" class="text-3xl font-black text-slate-800 leading-none">0</span>
+                        </div>
+                        <div class="flex justify-between items-end">
+                            <span class="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Envois Prêts</span>
+                            <span id="statReady" class="text-3xl font-black text-blue-600 leading-none">0</span>
+                        </div>
+                        <div class="pt-4 border-t border-slate-100 flex justify-between items-end">
+                            <span class="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Réussis</span>
+                            <span id="statSuccess" class="text-3xl font-black text-green-500 leading-none">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // CONFIGURATION
+        let currentStep = 1;
+        let fileBase64 = null;
+        let extractionData = [];
+
+        // INITIALISATION DES ICONES
+        lucide.createIcons();
+
+        // GESTION DU STEPPER
+        function updateStepper() {
+            const steps = [
+                { n: 1, l: 'Dépôt' },
+                { n: 2, l: 'Mapping' },
+                { n: 3, l: 'Envoi' }
+            ];
+            const container = document.getElementById('step-indicators');
+            container.innerHTML = steps.map(s => `
+                <div class="flex flex-col items-center gap-3 bg-slate-50 px-4">
+                    <div class="w-12 h-12 rounded-full flex items-center justify-center font-bold border-4 transition-all duration-300 
+                        ${currentStep >= s.n ? 'bg-blue-600 border-blue-100 text-white shadow-lg scale-110' : 'bg-white border-slate-200 text-slate-400'}">
+                        ${currentStep > s.n ? '<i data-lucide="check" class="w-6 h-6"></i>' : s.n}
+                    </div>
+                    <span class="text-[10px] font-black uppercase tracking-widest ${currentStep >= s.n ? 'text-blue-600' : 'text-slate-400'}">${s.l}</span>
+                </div>
+            `).join('');
+            lucide.createIcons();
+        }
+        updateStepper();
+
+        // LOGGING
+        function addLog(msg) {
+            const container = document.getElementById('logContainer');
+            if (container.querySelector('.italic')) container.innerHTML = '';
+            const logEntry = document.createElement('div');
+            logEntry.className = "group border-l border-slate-700 pl-4 py-1 hover:border-blue-500 transition-colors mb-2";
+            logEntry.innerHTML = `
+                <span class="text-blue-500 font-bold opacity-60">[${new Date().toLocaleTimeString()}]</span>
+                <span class="text-slate-300 ml-2">${msg}</span>
+            `;
+            container.prepend(logEntry);
+        }
+
+        // CONVERSION FILE TO BASE64
+        function getBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = error => reject(error);
+            });
+        }
+
+        // PHASE 1 : EXTRACTION
+        async function processFile(file) {
+            const url = document.getElementById('apiUrl').value;
+            if (!url) return addLog("Erreur : URL API manquante.");
+
+            addLog(`Fichier reçu : ${file.name}`);
+            addLog("Analyse en cours via Google OCR...");
+
+            try {
+                fileBase64 = await getBase64(file);
+                const response = await fetch(url, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'EXTRACT', fileBase64: fileBase64, fileName: file.name })
+                });
+
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+
+                extractionData = data.records || [];
+                renderTable();
+                
+                document.getElementById('step1').classList.add('hidden');
+                document.getElementById('step2').classList.remove('hidden');
+                currentStep = 2;
+                updateStepper();
+                
+                document.getElementById('statTotal').innerText = extractionData.length;
+                document.getElementById('statReady').innerText = extractionData.filter(r => r.status === 'READY').length;
+                document.getElementById('recordCount').innerText = `${extractionData.length} fiches détectées`;
+                
+                addLog(`${extractionData.length} bulletins identifiés avec succès.`);
+            } catch (err) {
+                addLog(`Échec : ${err.message}`);
+            }
+        }
+
+        // RENDU DU TABLEAU
+        function renderTable() {
+            const body = document.getElementById('tableBody');
+            body.innerHTML = extractionData.map(r => `
+                <tr class="hover:bg-blue-50/40 transition-colors">
+                    <td class="px-8 py-5 text-xs font-mono text-slate-400">P.${r.page}</td>
+                    <td class="px-8 py-5 font-bold text-slate-700 text-sm uppercase">${r.detectedName}</td>
+                    <td class="px-8 py-5">
+                        ${r.email ? 
+                            `<div class="flex flex-col"><span class="text-sm text-blue-600 font-bold">${r.email}</span><span class="text-[9px] font-black text-slate-300 uppercase">Match OK</span></div>` : 
+                            `<span class="text-red-500 text-[9px] font-black uppercase flex items-center gap-1"><i data-lucide="alert-circle" class="w-3 h-3"></i> Inconnu</span>`
+                        }
+                    </td>
+                    <td class="px-8 py-5">
+                        <span class="bg-${r.status === 'READY' ? 'blue' : 'red'}-100 text-${r.status === 'READY' ? 'blue' : 'red'}-700 text-[9px] px-2 py-1 rounded-md font-black">
+                            ${r.status}
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        // PHASE 2 : ENVOI FINAL
+        async function confirmAndSend() {
+            const url = document.getElementById('apiUrl').value;
+            const btn = document.getElementById('sendBtn');
+            btn.disabled = true;
+            btn.innerHTML = `<i data-lucide="loader-2" class="animate-spin"></i> Traitement...`;
+            lucide.createIcons();
+
+            addLog("Déclenchement du pipeline final (Drive/Gmail/Sheets)...");
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        action: 'SEND_AND_SAVE', 
+                        validatedRecords: extractionData, 
+                        fileBase64: fileBase64 
+                    })
+                });
+
+                const data = await response.json();
+                if (data.status === 'COMPLETED' || data.action === 'FINALIZE_COMPLETE') {
+                    const count = data.processedCount || (data.resultat ? data.resultat.succes : 0);
+                    addLog(`Distribution terminée : ${count} fiches traitées.`);
+                    document.getElementById('statSuccess').innerText = count;
+                    
+                    document.getElementById('step2').classList.add('hidden');
+                    document.getElementById('step3').classList.remove('hidden');
+                    currentStep = 3;
+                    updateStepper();
+                } else {
+                    throw new Error("Erreur de traitement backend");
+                }
+            } catch (err) {
+                addLog(`Erreur : ${err.message}`);
+                btn.disabled = false;
+                btn.innerHTML = `<i data-lucide="send"></i> Réessayer l'envoi`;
+                lucide.createIcons();
+            }
+        }
+
+        // GENERATEUR TEST
+        async function generateTestPDF() {
+            addLog("Génération d'un échantillon fictif...");
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            const samples = [
+                { n: "DUPONT JEAN", id: "ID001" },
+                { n: "MARTIN SOPHIE", id: "ID002" }
+            ];
+
+            samples.forEach((s, i) => {
+                if (i > 0) doc.addPage();
+                doc.setFontSize(20);
+                doc.text("SOCIÉTÉ FICTIVE SAS", 20, 20);
+                doc.setFontSize(12);
+                doc.setFont("helvetica", "bold");
+                doc.text(`Nom Prénom : ${s.n}`, 20, 50);
+                doc.setFont("helvetica", "normal");
+                doc.text(`Matricule : ${s.id}`, 20, 60);
+                doc.text("Période : Février 2026", 20, 70);
+            });
+
+            const blob = doc.output('blob');
+            const file = new File([blob], "Paie_Test_Fevrier.pdf", { type: "application/pdf" });
+            processFile(file);
+        }
+
+        // EVENTS
+        document.getElementById('fileInput').onchange = (e) => {
+            if (e.target.files[0]) processFile(e.target.files[0]);
+        };
+    </script>
+</body>
+</html>
