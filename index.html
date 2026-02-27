@@ -46,6 +46,18 @@
     </nav>
 
     <main class="max-w-7xl mx-auto p-8">
+        <!-- CORS HELP ALERT (Visible only if potential issue) -->
+        <div id="cors-helper" class="mb-8 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-4 items-start shadow-sm">
+            <div class="bg-amber-100 p-2 rounded-lg text-amber-600">
+                <i data-lucide="info" class="w-5 h-5"></i>
+            </div>
+            <div class="text-xs text-amber-800 leading-relaxed">
+                <p class="font-bold mb-1 uppercase tracking-tight">Vérification du déploiement Google Script</p>
+                <p>Si vous rencontrez une erreur "CORS" ou "Failed to fetch", assurez-vous que votre script Google est déployé ainsi : <br>
+                <b>Type :</b> Application Web | <b>Exécuter en tant que :</b> Moi | <b>Qui a accès :</b> Tout le monde (ou "Anyone").</p>
+            </div>
+        </div>
+
         <!-- STEPPER -->
         <div class="flex justify-between items-center mb-12 max-w-3xl mx-auto relative">
             <div class="absolute top-1/2 left-0 w-full h-1 bg-slate-200 -z-10 -translate-y-1/2"></div>
@@ -211,6 +223,25 @@
             });
         }
 
+        /**
+         * Wrapper fetch spécial pour Google Apps Script
+         * Évite les erreurs CORS en n'envoyant pas d'en-têtes JSON complexes
+         */
+        async function callGAS(url, payload) {
+            // Pour éviter le preflight OPTIONS, on n'utilise pas Content-Type: application/json
+            // Google Apps Script accepte quand même le JSON brut dans le corps
+            const response = await fetch(url, {
+                method: 'POST',
+                // Mode 'no-cors' ne permettrait pas de lire la réponse, donc on garde 'cors'
+                // mais on reste sur une "Simple Request" si possible
+                body: JSON.stringify(payload),
+                redirect: 'follow'
+            });
+
+            if (!response.ok) throw new Error(`Erreur HTTP: ${response.status}`);
+            return await response.json();
+        }
+
         // PHASE 1 : EXTRACTION
         async function processFile(file) {
             const url = document.getElementById('apiUrl').value;
@@ -221,12 +252,13 @@
 
             try {
                 fileBase64 = await getBase64(file);
-                const response = await fetch(url, {
-                    method: 'POST',
-                    body: JSON.stringify({ action: 'EXTRACT', fileBase64: fileBase64, fileName: file.name })
+                
+                const data = await callGAS(url, { 
+                    action: 'EXTRACT', 
+                    fileBase64: fileBase64, 
+                    fileName: file.name 
                 });
 
-                const data = await response.json();
                 if (data.error) throw new Error(data.error);
 
                 extractionData = data.records || [];
@@ -244,6 +276,8 @@
                 addLog(`${extractionData.length} bulletins identifiés avec succès.`);
             } catch (err) {
                 addLog(`Échec : ${err.message}`);
+                console.error("Détails de l'erreur:", err);
+                addLog("Astuce: Vérifiez que le script Google est déployé en accès 'Tout le monde'.");
             }
         }
 
@@ -281,16 +315,12 @@
             addLog("Déclenchement du pipeline final (Drive/Gmail/Sheets)...");
 
             try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    body: JSON.stringify({ 
-                        action: 'SEND_AND_SAVE', 
-                        validatedRecords: extractionData, 
-                        fileBase64: fileBase64 
-                    })
+                const data = await callGAS(url, { 
+                    action: 'SEND_AND_SAVE', 
+                    validatedRecords: extractionData, 
+                    fileBase64: fileBase64 
                 });
 
-                const data = await response.json();
                 if (data.status === 'COMPLETED' || data.action === 'FINALIZE_COMPLETE') {
                     const count = data.processedCount || (data.resultat ? data.resultat.succes : 0);
                     addLog(`Distribution terminée : ${count} fiches traitées.`);
