@@ -9,7 +9,8 @@ import {
   Eye,
   Loader2,
   Database,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Beaker
 } from 'lucide-react';
 
 // URL de déploiement Google Apps Script fournie par l'utilisateur
@@ -27,6 +28,55 @@ const App = () => {
 
   const addLog = (msg) => {
     setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
+  };
+
+  // Utilitaire pour charger jsPDF dynamiquement pour les tests
+  const loadJsPDF = () => {
+    return new Promise((resolve) => {
+      if (window.jspdf) return resolve(window.jspdf);
+      const script = document.createElement('script');
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+      script.onload = () => resolve(window.jspdf);
+      document.head.appendChild(script);
+    });
+  };
+
+  // Générateur de PDF fictif pour le test du pipeline
+  const generateTestPDF = async () => {
+    addLog("Génération d'un PDF de test (2 pages)...");
+    const { jsPDF } = await loadJsPDF();
+    const doc = new jsPDF();
+
+    // Page 1
+    doc.setFontSize(20);
+    doc.text("SOCIÉTÉ FICTIVE SAS", 20, 20);
+    doc.setFontSize(12);
+    doc.text("Bulletin de salaire - Février 2026", 20, 30);
+    doc.setFont("helvetica", "bold");
+    doc.text("Nom Prénom : DUPONT JEAN", 20, 50);
+    doc.setFont("helvetica", "normal");
+    doc.text("Matricule : ID001", 20, 60);
+    doc.text("Salaire de base : 3500.00 EUR", 20, 80);
+    doc.text("Net à payer : 2750.40 EUR", 20, 90);
+
+    // Page 2
+    doc.addPage();
+    doc.setFontSize(20);
+    doc.text("SOCIÉTÉ FICTIVE SAS", 20, 20);
+    doc.setFontSize(12);
+    doc.text("Bulletin de salaire - Février 2026", 20, 30);
+    doc.setFont("helvetica", "bold");
+    doc.text("Nom Prénom : MARTIN SOPHIE", 20, 50);
+    doc.setFont("helvetica", "normal");
+    doc.text("Matricule : ID002", 20, 60);
+    doc.text("Salaire de base : 3800.00 EUR", 20, 80);
+    doc.text("Net à payer : 2980.15 EUR", 20, 90);
+
+    const pdfBlob = doc.output('blob');
+    const testFile = new File([pdfBlob], "Test_Paie_Fevrier_2026.pdf", { type: "application/pdf" });
+    
+    setFile(testFile);
+    processPDF(testFile);
   };
 
   // Utilitaire pour convertir un fichier en Base64 pour le transport vers GAS
@@ -108,7 +158,8 @@ const App = () => {
       const data = await response.json();
 
       if (data.status === 'COMPLETED' || data.action === 'FINALIZE_COMPLETE') {
-        addLog(`Succès : ${data.processedCount || data.resultat?.succes || 0} fiches traitées.`);
+        const count = data.processedCount || (data.resultat ? data.resultat.succes : 0);
+        addLog(`Succès : ${count} fiches traitées.`);
         setExtractionResult(prev => prev.map(r => ({ ...r, status: 'sent' })));
         setStatus('completed');
         setCurrentStep(3);
@@ -179,16 +230,36 @@ const App = () => {
             
             {/* Étape 1 : Upload */}
             {currentStep === 1 && (
-              <div className="bg-white rounded-3xl border-2 border-dashed border-slate-300 p-16 flex flex-col items-center justify-center text-center transition-all hover:border-blue-400 hover:bg-blue-50/20 group">
-                <div className="bg-blue-50 p-6 rounded-full mb-6 group-hover:scale-110 transition-transform">
-                  <Upload className="text-blue-600" size={48} />
+              <div className="space-y-6">
+                <div className="bg-white rounded-3xl border-2 border-dashed border-slate-300 p-16 flex flex-col items-center justify-center text-center transition-all hover:border-blue-400 hover:bg-blue-50/20 group">
+                  <div className="bg-blue-50 p-6 rounded-full mb-6 group-hover:scale-110 transition-transform">
+                    <Upload className="text-blue-600" size={48} />
+                  </div>
+                  <h2 className="text-2xl font-bold text-slate-800 mb-2">Importer le fichier de paie</h2>
+                  <p className="text-slate-500 mb-8 max-w-sm text-sm">Téléversez le PDF consolidé. Le système identifiera automatiquement les fiches individuelles.</p>
+                  
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <label className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl font-bold cursor-pointer transition-all shadow-xl shadow-blue-200 inline-flex items-center gap-3 active:scale-95">
+                      <FileText size={20}/> Choisir le fichier PDF
+                      <input type="file" className="hidden" accept=".pdf" onChange={handleFileUpload} />
+                    </label>
+                    
+                    <button 
+                      onClick={generateTestPDF}
+                      className="bg-white border border-slate-200 text-slate-600 px-8 py-4 rounded-xl font-bold hover:bg-slate-50 transition-all inline-flex items-center gap-3 active:scale-95"
+                    >
+                      <Beaker size={20} className="text-indigo-500"/> Générer PDF de test
+                    </button>
+                  </div>
                 </div>
-                <h2 className="text-2xl font-bold text-slate-800 mb-2">Importer le fichier de paie</h2>
-                <p className="text-slate-500 mb-8 max-w-sm text-sm">Téléversez le PDF consolidé. Le système identifiera automatiquement les 60 fiches individuelles.</p>
-                <label className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-xl font-bold cursor-pointer transition-all shadow-xl shadow-blue-200 inline-flex items-center gap-3">
-                  <FileText size={20}/> Choisir le fichier PDF
-                  <input type="file" className="hidden" accept=".pdf" onChange={handleFileUpload} />
-                </label>
+                
+                <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex gap-3">
+                  <AlertCircle className="text-blue-500 shrink-0" size={20} />
+                  <p className="text-xs text-blue-700 leading-relaxed">
+                    <b>Note de test :</b> Le générateur crée un PDF contenant "DUPONT JEAN" et "MARTIN SOPHIE". 
+                    Assurez-vous que ces noms sont présents dans votre onglet <i>Referentiel</i> pour que le mapping fonctionne.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -300,7 +371,9 @@ const App = () => {
         <div className="flex justify-center gap-6 mb-4 opacity-30 grayscale">
           <Database size={20} />
           <CheckCircle size={20} />
-          <ShieldCheck size={20} />
+          <div className="bg-slate-400 rounded-full w-5 h-5 flex items-center justify-center">
+              <CheckCircle size={14} className="text-white" />
+          </div>
         </div>
         <p className="text-slate-400 text-[10px] font-medium uppercase tracking-[0.1em]">
           Automated Payroll Delivery System • TLS 1.3 Encryption • Google API Integration
