@@ -1,0 +1,278 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  FileText, 
+  Upload, 
+  CheckCircle, 
+  AlertCircle, 
+  Send, 
+  Search, 
+  Settings, 
+  History,
+  Eye,
+  Loader2,
+  Database
+} from 'lucide-react';
+
+// Configuration Simulation & Mock (Pour démo immédiate)
+// En production, ces données proviendraient de Google Sheets
+const MOCK_EMPLOYEES = [
+  { id: '1', nom: 'DUPONT JEAN', email: 'jean.dupont@entreprise.fr', service: 'IT' },
+  { id: '2', nom: 'MARTIN SOPHIE', email: 'sophie.martin@entreprise.fr', service: 'RH' },
+  { id: '3', nom: 'BERNARD LUCAS', email: 'lucas.bernard@entreprise.fr', service: 'Marketing' },
+  { id: '4', nom: 'PETIT MARIE', email: 'marie.petit@entreprise.fr', service: 'Sales' },
+];
+
+const App = () => {
+  const [file, setFile] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [extractionResult, setExtractionResult] = useState([]);
+  const [employees, setEmployees] = useState(MOCK_EMPLOYEES);
+  const [status, setStatus] = useState('idle'); // idle, extracting, validating, sending, completed
+  const [currentStep, setCurrentStep] = useState(1);
+  const [logs, setLogs] = useState([]);
+
+  // Simulation d'extraction de texte PDF (Native Text)
+  const processPDF = async (uploadedFile) => {
+    setIsProcessing(true);
+    setStatus('extracting');
+    addLog(`Démarrage du traitement de : ${uploadedFile.name}`);
+
+    // Simulation d'un délai de lecture PDF
+    setTimeout(() => {
+      // Dans une version réelle, nous utiliserions pdfjs-dist pour lire chaque page
+      // et une Regex comme : /Nom\s?:\s?([A-Z\s]+)/i
+      const simulatedData = [
+        { page: 1, rawText: "Bulletin de Paie - Février 2026 - Nom : DUPONT JEAN", detectedName: "DUPONT JEAN" },
+        { page: 2, rawText: "Bulletin de Paie - Février 2026 - Nom : MARTIN SOPHIE", detectedName: "MARTIN SOPHIE" },
+        { page: 3, rawText: "Bulletin de Paie - Février 2026 - Nom : BERNARD LUCAS", detectedName: "BERNARD LUCAS" },
+        { page: 4, rawText: "Bulletin de Paie - Février 2026 - Nom : PETIT MARIE", detectedName: "PETIT MARIE" },
+      ];
+
+      const mapped = simulatedData.map(item => {
+        const employeeMatch = employees.find(e => e.nom.toUpperCase() === item.detectedName.toUpperCase());
+        return {
+          ...item,
+          employee: employeeMatch || null,
+          status: employeeMatch ? 'ready' : 'error',
+          errorMessage: employeeMatch ? '' : 'Salarié non trouvé dans le référentiel'
+        };
+      });
+
+      setExtractionResult(mapped);
+      setIsProcessing(false);
+      setStatus('validating');
+      setCurrentStep(2);
+      addLog(`${simulatedData.length} fiches détectées.`);
+    }, 2000);
+  };
+
+  const addLog = (msg) => {
+    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
+  };
+
+  const handleFileUpload = (e) => {
+    const uploadedFile = e.target.files[0];
+    if (uploadedFile) {
+      setFile(uploadedFile);
+      processPDF(uploadedFile);
+    }
+  };
+
+  const confirmAndSend = async () => {
+    setStatus('sending');
+    setIsProcessing(true);
+    addLog("Lancement de l'automatisation Drive & Gmail...");
+
+    for (let i = 0; i < extractionResult.length; i++) {
+      const record = extractionResult[i];
+      if (record.status !== 'ready') continue;
+
+      // Simulation de la séquence GCF : 
+      // 1. Split page PDF
+      // 2. Upload Drive (/2026/02/NOM_PRENOM/fiche.pdf)
+      // 3. Log Google Sheet
+      // 4. Send Gmail
+      await new Promise(r => setTimeout(r, 800)); // Simule latence réseau API
+      
+      setExtractionResult(prev => {
+        const next = [...prev];
+        next[i].status = 'sent';
+        return next;
+      });
+      addLog(`Succès : Fiche envoyée à ${record.employee.email}`);
+    }
+
+    setIsProcessing(false);
+    setStatus('completed');
+    addLog("Traitement terminé avec succès.");
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 px-8 py-4 sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="bg-indigo-600 p-2 rounded-lg">
+              <FileText className="text-white" size={24} />
+            </div>
+            <h1 className="text-xl font-bold tracking-tight">PayDrive Automator <span className="text-indigo-600 text-sm font-medium ml-2">v1.0 MVP</span></h1>
+          </div>
+          <div className="flex items-center gap-4 text-sm font-medium">
+            <span className="flex items-center gap-1 text-slate-500"><Database size={16}/> Sheet Connecté</span>
+            <div className="h-4 w-px bg-slate-200"></div>
+            <span className="bg-green-100 text-green-700 px-2 py-1 rounded">60 Salariés</span>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto p-8">
+        {/* Stepper */}
+        <div className="flex justify-between mb-12 relative">
+          <div className="absolute top-1/2 left-0 w-full h-0.5 bg-slate-200 -z-10 -translate-y-1/2"></div>
+          {[
+            { n: 1, l: 'Upload PDF' },
+            { n: 2, l: 'Validation & Mapping' },
+            { n: 3, l: 'Distribution' }
+          ].map((s) => (
+            <div key={s.n} className="flex flex-col items-center gap-2">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold border-2 transition-colors ${currentStep >= s.n ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-300 text-slate-400'}`}>
+                {s.n}
+              </div>
+              <span className={`text-sm font-semibold ${currentStep >= s.n ? 'text-indigo-600' : 'text-slate-400'}`}>{s.l}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          
+          {/* Main Action Area */}
+          <div className="lg:col-span-2 space-y-6">
+            
+            {/* Step 1: Upload */}
+            {currentStep === 1 && (
+              <div className="bg-white rounded-2xl border-2 border-dashed border-slate-300 p-12 flex flex-col items-center justify-center text-center transition-all hover:border-indigo-400">
+                <div className="bg-indigo-50 p-4 rounded-full mb-4">
+                  <Upload className="text-indigo-600" size={48} />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Déposer le PDF global</h2>
+                <p className="text-slate-500 mb-8 max-w-sm">Le fichier doit contenir une page par salarié. Le système extraira automatiquement les identités.</p>
+                <label className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-bold cursor-pointer transition-all shadow-lg shadow-indigo-200">
+                  Sélectionner le fichier
+                  <input type="file" className="hidden" accept=".pdf" onChange={handleFileUpload} />
+                </label>
+              </div>
+            )}
+
+            {/* Step 2: Validation Table */}
+            {currentStep >= 2 && (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
+                  <h3 className="font-bold flex items-center gap-2">
+                    Résultats de l'extraction
+                    <span className="bg-slate-200 text-slate-700 text-xs px-2 py-0.5 rounded-full">{extractionResult.length} pages</span>
+                  </h3>
+                  {status === 'validating' && (
+                    <button 
+                      onClick={confirmAndSend}
+                      disabled={extractionResult.some(r => r.status === 'error')}
+                      className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
+                    >
+                      <Send size={16} /> Lancer l'envoi groupé
+                    </button>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="text-xs uppercase text-slate-400 bg-slate-50 font-bold tracking-wider">
+                        <th className="px-6 py-3">Page</th>
+                        <th className="px-6 py-3">Nom Détecté</th>
+                        <th className="px-6 py-3">Email Mapping</th>
+                        <th className="px-6 py-3">Statut</th>
+                        <th className="px-6 py-3">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {extractionResult.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-6 py-4 text-sm font-medium text-slate-500">#{row.page}</td>
+                          <td className="px-6 py-4 font-semibold">{row.detectedName}</td>
+                          <td className="px-6 py-4">
+                            {row.employee ? (
+                              <div className="flex flex-col">
+                                <span className="text-sm font-medium">{row.employee.email}</span>
+                                <span className="text-xs text-slate-400">{row.employee.service}</span>
+                              </div>
+                            ) : (
+                              <span className="text-red-500 text-sm italic">Non identifié</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
+                            {row.status === 'ready' && <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full font-bold">Prêt</span>}
+                            {row.status === 'error' && <span className="bg-red-100 text-red-700 text-xs px-2 py-1 rounded-full font-bold">Erreur</span>}
+                            {row.status === 'sent' && <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-bold">Envoyé</span>}
+                          </td>
+                          <td className="px-6 py-4">
+                            <button className="text-slate-400 hover:text-indigo-600"><Eye size={18}/></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar: Logs & Stats */}
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+              <h3 className="font-bold mb-4 flex items-center gap-2">
+                <History size={18} className="text-slate-400" /> Audit Trail
+              </h3>
+              <div className="space-y-3 h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+                {isProcessing && (
+                  <div className="flex items-center gap-2 text-indigo-600 text-sm font-medium animate-pulse">
+                    <Loader2 className="animate-spin" size={14} /> Traitement en cours...
+                  </div>
+                )}
+                {logs.length === 0 && <p className="text-sm text-slate-400 italic">Aucune activité enregistrée.</p>}
+                {logs.map((log, i) => (
+                  <div key={i} className="text-xs border-l-2 border-slate-200 pl-3 py-1 text-slate-600 hover:border-indigo-400 transition-colors">
+                    {log}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-indigo-900 rounded-2xl p-6 text-white">
+              <h3 className="font-bold mb-4 text-indigo-200 uppercase text-xs tracking-widest">Résumé du lot</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white/10 p-3 rounded-xl">
+                  <div className="text-2xl font-bold">{extractionResult.length}</div>
+                  <div className="text-xs text-indigo-300">Total Fiches</div>
+                </div>
+                <div className="bg-white/10 p-3 rounded-xl">
+                  <div className="text-2xl font-bold text-green-400">
+                    {extractionResult.filter(r => r.status === 'sent').length}
+                  </div>
+                  <div className="text-xs text-indigo-300">Réussis</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+
+      {/* Footer Info */}
+      <footer className="max-w-6xl mx-auto px-8 py-12 text-center text-slate-400 text-sm">
+        <p>Sécurité : Les fichiers sont traités localement. Connexion sécurisée TLS 1.3 aux API Google.</p>
+        <p className="mt-1">Propriété de l'entreprise - Accès restreint RH.</p>
+      </footer>
+    </div>
+  );
+};
+
+export default App;
