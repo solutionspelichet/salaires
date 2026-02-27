@@ -55,7 +55,7 @@
                 <div>
                     <h3 class="text-xl font-black text-red-900 mb-2">ERREUR DE DÉPLOIEMENT DÉTECTÉE (CORS)</h3>
                     <p class="text-sm text-red-700 leading-relaxed mb-6">
-                        Le navigateur bloque la réponse de Google. Cela signifie que votre script n'est pas configuré pour un accès public anonyme.
+                        Le navigateur bloque la réponse car Google renvoie une page de connexion au lieu des données de l'API. Votre script n'est pas configuré pour un accès public.
                     </p>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div class="space-y-3">
@@ -66,8 +66,8 @@
                             </ul>
                         </div>
                         <div class="bg-white/50 p-4 rounded-2xl border border-red-100">
-                            <p class="text-[10px] font-bold text-red-900 mb-2 underline italic">Action corrective :</p>
-                            <p class="text-[10px] text-red-700">Dans l'éditeur de script, cliquez sur <b>Déployer</b> > <b>Gérer les déploiements</b> > Modifier (crayon) > <b>Nouvelle version</b> puis Enregistrer.</p>
+                            <p class="text-[10px] font-bold text-red-900 mb-2 underline italic">Action corrective OBLIGATOIRE :</p>
+                            <p class="text-[10px] text-red-700">Dans Google Apps Script : <b>Déployer</b> > <b>Gérer les déploiements</b> > Modifier (crayon) > <b>SÉLECTIONNER NOUVELLE VERSION</b> dans le menu déroulant > Enregistrer.</p>
                         </div>
                     </div>
                 </div>
@@ -214,21 +214,30 @@
         }
 
         /**
-         * Appel API Google Apps Script avec stratégie "Simple Request"
-         * Évite OPTIONS preflight en utilisant des paramètres de texte brut
+         * Appel API Google Apps Script robuste
+         * - Force le Content-Type: text/plain pour éviter l'OPTIONS preflight
+         * - Intercepte explicitement les erreurs réseau/CORS dues aux redirections
          */
         async function callGAS(url, payload) {
-            // NOTE : On ne met PAS de Content-Type pour éviter le Preflight OPTIONS
-            // GAS reçoit le JSON dans e.postData.contents par défaut
-            const response = await fetch(url, {
-                method: 'POST',
-                body: JSON.stringify(payload),
-                mode: 'cors',
-                redirect: 'follow'
-            });
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'text/plain;charset=utf-8' // FORCAGE EN SIMPLE REQUEST
+                    },
+                    body: JSON.stringify(payload),
+                    redirect: 'follow'
+                });
 
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return await response.json();
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return await response.json();
+            } catch (error) {
+                // Si la requête échoue au niveau fetch (CORS / Redirect vers login Google)
+                if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                    throw new Error("BLOCAGE CORS_LOGIN : Votre script Google demande une connexion.");
+                }
+                throw error;
+            }
         }
 
         async function processFile(file) {
@@ -236,7 +245,7 @@
             document.getElementById('cors-alert').classList.add('hidden');
             
             addLog(`Fichier : ${file.name}`);
-            addLog("Analyse OCR via Google Cloud...");
+            addLog("Envoi au serveur Google (OCR)...");
 
             try {
                 const reader = new FileReader();
@@ -274,9 +283,11 @@
         function handleError(err) {
             console.error("Détails technique:", err);
             addLog(`ERREUR : ${err.message}`);
-            if (err.message.includes('fetch') || err.message.includes('HTTP 0')) {
+            
+            // Si l'erreur personnalisée CORS_LOGIN est levée
+            if (err.message.includes('CORS_LOGIN')) {
                 document.getElementById('cors-alert').classList.remove('hidden');
-                addLog("AIDE : Problème CORS détecté. Voir le panneau rouge en haut.");
+                addLog("AIDE : Veuillez suivre les instructions du panneau rouge en haut.");
             }
         }
 
